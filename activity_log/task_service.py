@@ -216,23 +216,24 @@ class TaskService:
             a.task_path = self._path(a.task_id, tasks)
         return result
 
-    def resolve_assignment(self, spec: str) -> int:
-        """割り当ての指定 (`#12` / `12` = 割り当て ID、`@1` = 直近の割り当ての番号、1 が最新) を ID にする。"""
+    def resolve_assignment(self, spec: str, start: int | None = None, end: int | None = None) -> int:
+        """割り当ての指定を ID にする。
+
+        `12` = 割り当て ID。`#3` / `@1` = タスク指定で、[start, end) にあるそのタスクの割り当てが
+        ちょうど 1 件のときだけ対象になる (0 件・複数件はエラー)。
+        """
         spec = spec.strip()
-        if spec.isdigit() or (spec[:1] == "#" and spec[1:].isdigit()):
-            return self.get_assignment(int(spec.lstrip("#"))).id
-        if spec[:1] == "@" and spec[1:].isdigit():
-            n = int(spec[1:])
-            recent = self.db.recent_assignments(n + 1)  # 次点も取り、同じ開始時刻で絞れないかを確認する
-            if n < 1 or n > len(recent):
-                raise NotFoundError(f"直近の割り当て {spec} はありません (log で一覧を確認できます)")
-            target = recent[n - 1]
-            if any(a.start_at == target.start_at for a in recent[max(n - 2, 0):n + 1] if a.id != target.id):
+        if spec.isdigit():
+            return self.get_assignment(int(spec)).id
+        if spec[:1] in ("#", "@") and spec[1:].isdigit():
+            task = self.resolve(spec).task
+            found = [a for a in self.db.overlapping_assignments(start, end) if a.task_id == task.id]
+            if len(found) != 1:
                 raise ActivityLogError(
-                    f"{spec} は開始時刻が同じ割り当てがあり絞れません (log の ID を #ID で指定してください)"
+                    f"{spec} の割り当てが {len(found)} 件あり、1 件に絞れません (ID を数字で指定してください)"
                 )
-            return target.id
-        raise ActivityLogError(f"割り当ての指定を解釈できません: {spec!r} (例: 12, #12, @1)")
+            return found[0].id
+        raise ActivityLogError(f"割り当ての指定を解釈できません: {spec!r} (例: 12, #3, @1)")
 
     def get_assignment(self, assignment_id: int) -> Assignment:
         a = self.db.get_assignment(assignment_id)
