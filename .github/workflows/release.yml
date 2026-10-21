@@ -1,0 +1,32 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Verify tag matches version
+        run: |
+          v=$(python -c "from activity_log import __version__; print(__version__)")
+          test "v$v" = "${GITHUB_REF_NAME}" || { echo "tag ${GITHUB_REF_NAME} != v$v"; exit 1; }
+      - name: Run tests
+        run: python -m unittest discover -t . -s tests
+      - name: Build pyz
+        run: python scripts/build_pyz.py -o dist/worklog.pyz
+      - name: Smoke test
+        run: python dist/worklog.pyz --version
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${GITHUB_REF_NAME}" dist/worklog.pyz --title "${GITHUB_REF_NAME}" --generate-notes

@@ -17,6 +17,12 @@ python -m activity_log <コマンド> [オプション]
 
 `pip install -e .` すると `worklog` コマンドとしても使えます。以下は `worklog` と書きます。
 
+### pyz 版 (単一ファイル)
+
+[Releases](https://github.com/heppocogne/work_log_py/releases) から `worklog.pyz` をダウンロードすると、リポジトリなしで `python worklog.pyz <コマンド>` で使えます。
+自分でビルドする場合は `python scripts/build_pyz.py` (出力: `dist/worklog.pyz`)。
+`v0.1.0` のようなタグ (`activity_log/__init__.py` の `__version__` と一致させる) を push すると GitHub Actions が自動で Release を作成し、`worklog.pyz` を添付します。
+
 ### よく使う流れ
 
 ```sh
