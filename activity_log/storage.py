@@ -7,15 +7,17 @@
 
 from __future__ import annotations
 
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
 
-from .models import Assignment, RawEvent, Task
+from .models import Assignment, RawEvent, Task, UndoEntry
 from .timeutil import now_ms
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
+UNDO_LIMIT = 20  # 取り消せる操作の保持件数
 ROOT_NAME = "(root)"
 UNCATEGORIZED_NAME = "未分類"
 
@@ -50,6 +52,15 @@ CREATE INDEX idx_assign_start ON assignments(start_at);
 CREATE TABLE app_state (
   key         TEXT PRIMARY KEY,
   value       TEXT NOT NULL
+);
+"""
+
+_SCHEMA_V2 = """
+CREATE TABLE undo_log (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at  INTEGER NOT NULL,
+  label       TEXT NOT NULL,
+  snapshot    TEXT NOT NULL
 );
 """
 
@@ -108,7 +119,11 @@ class Storage:
                     "INSERT INTO tasks(parent_id, name, created_at) VALUES (?, ?, ?)",
                     (cur.lastrowid, UNCATEGORIZED_NAME, now),
                 )
-            # 将来: if version < 2: ...
+            if version < 2:
+                for stmt in _SCHEMA_V2.split(";"):
+                    if stmt.strip():
+                        self.conn.execute(stmt)
+            # 将来: if version < 3: ...
             self.conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _root_id(self) -> int:
@@ -315,6 +330,55 @@ class Storage:
             if row:
                 events.insert(0, self._raw(row))
         return events
+
+    # --- undo_log (操作前のスナップショット。tasks と assignments のみ。raw_events は対象外) ---
+
+    def snapshot(self) -> str:
+        tasks = [list(r) for r in self.conn.execute(
+            "SELECT id, parent_id, name, archived, created_at FROM tasks ORDER BY id")]
+        assigns = [list(r) for r in self.conn.execute(
+            "SELECT id, task_id, start_at, end_at, source FROM assignments ORDER BY id")]
+        return json.dumps({"tasks": tasks, "assignments": assigns}, ensure_ascii=False)
+
+    def restore(self, snapshot: str) -> None:
+        """スナップショットの状態に tasks / assignments を戻す。"""
+        data = json.loads(snapshot)
+        with self.transaction():
+            self.conn.execute("DELETE FROM assignments")
+            keep = {t[0] for t in data["tasks"]}
+            for (tid,) in self.conn.execute("SELECT id FROM tasks ORDER BY id DESC").fetchall():
+                if tid not in keep:  # 新しい子から消す
+                    self.conn.execute("DELETE FROM tasks WHERE id = ?", (tid,))
+            existing = {r[0] for r in self.conn.execute("SELECT id FROM tasks")}
+            for tid, parent_id, name, archived, created_at in data["tasks"]:
+                if tid in existing:
+                    self.conn.execute(
+                        "UPDATE tasks SET parent_id = ?, name = ?, archived = ? WHERE id = ?",
+                        (parent_id, name, archived, tid))
+                else:
+                    self.conn.execute(
+                        "INSERT INTO tasks(id, parent_id, name, archived, created_at) VALUES (?, ?, ?, ?, ?)",
+                        (tid, parent_id, name, archived, created_at))
+            self.conn.executemany(
+                "INSERT INTO assignments(id, task_id, start_at, end_at, source) VALUES (?, ?, ?, ?, ?)",
+                data["assignments"])
+
+    def push_undo(self, label: str, snapshot: str, created_at: int) -> None:
+        self.conn.execute(
+            "INSERT INTO undo_log(created_at, label, snapshot) VALUES (?, ?, ?)",
+            (created_at, label, snapshot))
+        self.conn.execute(
+            "DELETE FROM undo_log WHERE id NOT IN (SELECT id FROM undo_log ORDER BY id DESC LIMIT ?)",
+            (UNDO_LIMIT,))
+
+    def list_undo(self) -> list[UndoEntry]:
+        rows = self.conn.execute(
+            "SELECT id, created_at, label, snapshot FROM undo_log ORDER BY id DESC").fetchall()
+        return [UndoEntry(r["id"], r["created_at"], r["label"], r["snapshot"]) for r in rows]
+
+    def delete_undo_from(self, undo_id: int) -> None:
+        """undo_id 以降 (新しい方) の履歴を捨てる。"""
+        self.conn.execute("DELETE FROM undo_log WHERE id >= ?", (undo_id,))
 
     # --- app_state -----------------------------------------------------------
 

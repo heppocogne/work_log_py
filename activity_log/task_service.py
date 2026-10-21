@@ -13,11 +13,12 @@ CLI / GUI はタスクを「指定文字列」で渡せる (resolve):
 
 from __future__ import annotations
 
+import functools
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from .errors import ActivityLogError, NotFoundError
-from .models import Assignment, Task
+from .models import Assignment, Task, UndoEntry
 from .storage import Storage
 from .timeutil import fmt_clock, now_ms
 
@@ -33,10 +34,38 @@ class Resolved:
     created: list[str] = field(default_factory=list)  # 新しく作ったタスクのパス
 
 
+def _recorded(label: str) -> Callable:
+    """手動操作の前後で tasks / assignments を比べ、変わっていれば undo 履歴に積む。
+
+    - 入れ子 (resume → switch など) は外側の操作として1件だけ記録する
+    - 例外が出たら全体をロールバックする
+    - ウィンドウ監視による自動の変更 (close_open_before) は対象にしない
+    """
+    def deco(fn: Callable) -> Callable:
+        @functools.wraps(fn)
+        def wrapper(self: TaskService, *args, **kwargs):
+            if self._recording:
+                return fn(self, *args, **kwargs)
+            self._recording = True
+            try:
+                with self.db.transaction():
+                    before = self.db.snapshot()
+                    result = fn(self, *args, **kwargs)
+                    if self.db.snapshot() != before:
+                        detail = " ".join(str(a) for a in args[:2] if isinstance(a, (str, int)))
+                        self.db.push_undo(f"{label} {detail}".strip(), before, self.clock())
+                    return result
+            finally:
+                self._recording = False
+        return wrapper
+    return deco
+
+
 class TaskService:
     def __init__(self, storage: Storage, clock: Callable[[], int] = now_ms) -> None:
         self.db = storage
         self.clock = clock
+        self._recording = False
 
     # =========================================================================
     # タスク
@@ -144,12 +173,14 @@ class TaskService:
         assert task is not None
         return Resolved(self.get_task(task.id), created)
 
+    @_recorded("task add")
     def create_task(self, path: str) -> Resolved:
         r = self.resolve(path, create=True)
         if not r.created:
             raise ActivityLogError(f"タスクは既に存在します: {r.task.path} (#{r.task.id})")
         return r
 
+    @_recorded("task rename")
     def rename_task(self, spec: str, new_name: str) -> Task:
         task = self._editable(spec)
         new_name = self._validate_name(new_name)
@@ -160,6 +191,7 @@ class TaskService:
         self.db.update_task(task.id, name=new_name)
         return self.get_task(task.id)
 
+    @_recorded("task move")
     def move_task(self, spec: str, new_parent_spec: str | None) -> Task:
         """new_parent_spec が None ならトップレベルへ移動する。"""
         task = self._editable(spec)
@@ -178,11 +210,13 @@ class TaskService:
         self.db.update_task(task.id, parent_id=parent.id)
         return self.get_task(task.id)
 
+    @_recorded("task archive")
     def set_archived(self, spec: str, archived: bool) -> Task:
         task = self._editable(spec)
         self.db.update_task(task.id, archived=archived)
         return self.get_task(task.id)
 
+    @_recorded("task merge")
     def merge_task(self, src_spec: str, dst_spec: str) -> tuple[Task, Task, int]:
         """src の割り当てをすべて dst に付け替え、src をアーカイブする。"""
         src = self._editable(src_spec)
@@ -234,6 +268,7 @@ class TaskService:
                 f"アーカイブ済みのタスクです: {task.path} (task unarchive で戻せます)"
             )
 
+    @_recorded("start")
     def switch(self, task_spec: str, at: int | None = None, create: bool = True,
                source: str = "switch") -> tuple[Assignment, list[str]]:
         """タスクを開始 (切替) する。at 以降の既存の割り当ては切り詰める。"""
@@ -249,6 +284,7 @@ class TaskService:
             aid = self._insert_merged(resolved.task.id, at, None, source)
         return self.get_assignment(aid), resolved.created
 
+    @_recorded("stop")
     def stop(self, at: int | None = None) -> Assignment:
         """進行中のタスクを at で終了する。"""
         at = self.clock() if at is None else at
@@ -265,6 +301,7 @@ class TaskService:
             self.db.update_assignment(cur.id, cur.start_at, at)
         return self.get_assignment(cur.id)
 
+    @_recorded("resume")
     def resume(self, at: int | None = None) -> tuple[Assignment, list[str]]:
         """直前のタスクを再開する。"""
         if self.db.open_assignment():
@@ -274,6 +311,7 @@ class TaskService:
             raise ActivityLogError("再開できるタスクがありません")
         return self.switch(f"#{last.task_id}", at=at, create=False)
 
+    @_recorded("assign add")
     def add_range(self, task_spec: str, start: int, end: int, create: bool = True,
                   source: str = "manual") -> tuple[Assignment, list[str]]:
         """[start, end) をタスクに割り当てる (さかのぼっての登録・空白の穴埋め)。"""
@@ -299,6 +337,7 @@ class TaskService:
         end = nxt.started_at if nxt else self.clock()
         return first.started_at, end
 
+    @_recorded("assign edit")
     def edit(self, assignment_id: int, *, start: int | None = None, end: int | None = None,
              task_spec: str | None = None, create: bool = True) -> tuple[Assignment, list[str]]:
         """割り当ての開始・終了・タスクを変更する。新しい範囲に重なる他の割り当ては切り詰める。"""
@@ -323,6 +362,7 @@ class TaskService:
             self.db.insert_assignment(task_id, new_start, new_end, "manual", assignment_id=a.id)
         return self.get_assignment(a.id), created
 
+    @_recorded("assign delete")
     def delete(self, assignment_id: int) -> Assignment:
         a = self.get_assignment(assignment_id)
         self.db.delete_assignment(a.id)
@@ -336,6 +376,29 @@ class TaskService:
                 return None
             self.db.update_assignment(cur.id, cur.start_at, at)
         return self.get_assignment(cur.id)
+
+    # =========================================================================
+    # 取り消し (undo)
+    # =========================================================================
+
+    def undo_history(self) -> list[UndoEntry]:
+        """取り消せる操作 (新しい順)。"""
+        return self.db.list_undo()
+
+    def undo(self, undo_id: int | None = None) -> list[UndoEntry]:
+        """直前の操作 (undo_id を指定したらその操作の前) まで戻す。取り消した操作を新しい順に返す。"""
+        history = self.db.list_undo()
+        if not history:
+            raise ActivityLogError("取り消せる操作がありません")
+        if undo_id is None:
+            undo_id = history[0].id
+        target = next((e for e in history if e.id == undo_id), None)
+        if target is None:
+            raise NotFoundError(f"取り消し履歴 {undo_id} が見つかりません (undo --list で確認できます)")
+        with self.db.transaction():
+            self.db.restore(target.snapshot)
+            self.db.delete_undo_from(target.id)
+        return [e for e in history if e.id >= target.id]
 
     # --- 内部 ----------------------------------------------------------------
 

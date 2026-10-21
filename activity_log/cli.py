@@ -263,6 +263,23 @@ def cmd_assign_delete(app: App, args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_undo(app: App, args: argparse.Namespace) -> int:
+    if args.list:
+        history = app.tasks.undo_history()
+        if args.json:
+            emit_json([e.to_dict() for e in history])
+            return 0
+        if not history:
+            out("取り消せる操作はありません")
+        for e in history:
+            out(f"[{e.id}] {fmt_clock(e.created_at)}  {e.label}")
+        return 0
+    undone = app.tasks.undo(args.id)
+    for e in undone:
+        out(f"取り消しました: [{e.id}] {fmt_clock(e.created_at)}  {e.label}")
+    return 0
+
+
 # =============================================================================
 # タスクの管理
 # =============================================================================
@@ -522,6 +539,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("resume", help="直前のタスクを再開する")
     s.add_argument("--at", metavar="TIME", help=f"再開時刻。{TIME_HELP}")
     s.set_defaults(func=cmd_resume)
+
+    s = sub.add_parser("undo", parents=[json_opt],
+                       help="直前の操作 (start / stop / assign / task など) を取り消す")
+    s.add_argument("id", nargs="?", type=int, help="この履歴 ID の操作の前まで戻す (--list で確認)")
+    s.add_argument("--list", action="store_true", help="取り消せる操作の一覧を表示する")
+    s.set_defaults(func=cmd_undo)
 
     s = sub.add_parser("status", aliases=["st"], parents=[json_opt], help="現在のタスクと監視状況を表示する")
     s.set_defaults(func=cmd_status)

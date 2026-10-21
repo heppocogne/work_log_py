@@ -111,3 +111,15 @@ class TaskTotal:
             "total_ms": self.total_ms,
             "children": [c.to_dict() for c in self.children],
         }
+
+
+@dataclass
+class UndoEntry:
+    id: int
+    created_at: int
+    label: str  # 取り消す操作の説明 ("start 案件A")
+    snapshot: str = field(repr=False)  # 操作前の tasks / assignments (JSON)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "created_at": self.created_at,
+                "created_at_iso": iso(self.created_at), "label": self.label}
