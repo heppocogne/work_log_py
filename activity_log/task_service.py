@@ -250,6 +250,25 @@ class TaskService:
             a.task_path = self._path(a.task_id, tasks)
         return result
 
+    def resolve_assignment(self, spec: str, start: int | None = None, end: int | None = None) -> int:
+        """割り当ての指定を ID にする。
+
+        `12` = 割り当て ID。`#3` / `@1` = タスク指定で、[start, end) にあるそのタスクの割り当てが
+        ちょうど 1 件のときだけ対象になる (0 件・複数件はエラー)。
+        """
+        spec = spec.strip()
+        if spec.isdigit():
+            return self.get_assignment(int(spec)).id
+        if spec[:1] in ("#", "@") and spec[1:].isdigit():
+            task = self.resolve(spec).task
+            found = [a for a in self.db.overlapping_assignments(start, end) if a.task_id == task.id]
+            if len(found) != 1:
+                raise ActivityLogError(
+                    f"{spec} の割り当てが {len(found)} 件あり、1 件に絞れません (ID を数字で指定してください)"
+                )
+            return found[0].id
+        raise ActivityLogError(f"割り当ての指定を解釈できません: {spec!r} (例: 12, #3, @1)")
+
     def get_assignment(self, assignment_id: int) -> Assignment:
         a = self.db.get_assignment(assignment_id)
         if a is None:

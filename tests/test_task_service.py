@@ -234,6 +234,29 @@ class EditTest(AssignmentTestBase):
         with self.assertRaises(NotFoundError):
             self.ts.delete(a.id)
 
+    def test_resolve_assignment_by_id(self) -> None:
+        a, _ = self.ts.add_range("A", t("9:00"), t("10:00"))
+        self.assertEqual(self.ts.resolve_assignment(str(a.id)), a.id)
+        with self.assertRaises(NotFoundError):
+            self.ts.resolve_assignment("999")
+        for bad in ("#", "@x", "", "A"):
+            with self.assertRaises(ActivityLogError):
+                self.ts.resolve_assignment(bad)
+
+    def test_resolve_assignment_by_task(self) -> None:
+        a, _ = self.ts.add_range("A", t("9:00"), t("10:00"))
+        b, _ = self.ts.add_range("B", t("10:00"), t("11:00"))
+        c, _ = self.ts.add_range("B", t("12:00"), t("13:00"))
+        self.assertEqual(self.ts.resolve_assignment(f"#{a.task_id}"), a.id)
+        self.assertEqual(self.ts.resolve_assignment("@1", t("12:00"), t("13:00")), c.id)
+        # B は 2 件あって絞れない / 範囲内に 1 件だけなら絞れる
+        with self.assertRaises(ActivityLogError):
+            self.ts.resolve_assignment(f"#{b.task_id}")
+        self.assertEqual(self.ts.resolve_assignment(f"#{b.task_id}", t("10:00"), t("11:30")), b.id)
+        # 0 件
+        with self.assertRaises(ActivityLogError):
+            self.ts.resolve_assignment(f"#{a.task_id}", t("10:00"), t("11:00"))
+
     def test_close_open_before(self) -> None:
         self.ts.switch("A", at=t("9:00"))
         self.assertIsNone(self.ts.close_open_before(t("8:00")))
