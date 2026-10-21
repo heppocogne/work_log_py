@@ -41,6 +41,19 @@ class CliTest(unittest.TestCase):
         code, out, _ = self.run_cli()  # コマンド省略 = status
         self.assertIn("現在のタスク: (なし)", out)
 
+    def test_undo(self) -> None:
+        self.run_cli("start", "A", "--at", "-30m")
+        self.run_cli("start", "B", "--at", "-10m")
+        code, out, _ = self.run_cli("undo", "--list", "--json")
+        self.assertEqual(len(json.loads(out)), 2)
+        code, out, _ = self.run_cli("undo")
+        self.assertEqual(code, 0)
+        self.assertIn("取り消しました", out)
+        code, out, _ = self.run_cli("status", "--json")
+        self.assertEqual(json.loads(out)["current"]["task_path"], "A")
+        self.assertEqual(self.run_cli("undo")[0], 0)
+        self.assertEqual(self.run_cli("undo")[0], 1)
+
     def test_errors_return_1(self) -> None:
         code, _, err = self.run_cli("stop")
         self.assertEqual(code, 1)
