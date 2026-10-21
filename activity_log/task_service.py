@@ -216,6 +216,19 @@ class TaskService:
             a.task_path = self._path(a.task_id, tasks)
         return result
 
+    def resolve_assignment(self, spec: str) -> int:
+        """割り当ての指定 (`#12` = 割り当て ID、`@1` = 直近の割り当ての番号、1 が最新) を ID にする。"""
+        spec = spec.strip()
+        if spec[:1] in ("#", "@") and spec[1:].isdigit():
+            n = int(spec[1:])
+            if spec[0] == "#":
+                return n
+            recent = self.db.recent_assignments(max(n, 1))
+            if n < 1 or n > len(recent):
+                raise NotFoundError(f"直近の割り当て {spec} はありません (log で一覧を確認できます)")
+            return recent[n - 1].id
+        raise ActivityLogError(f"割り当ての指定を解釈できません: {spec!r} (例: #12, @1)")
+
     def get_assignment(self, assignment_id: int) -> Assignment:
         a = self.db.get_assignment(assignment_id)
         if a is None:

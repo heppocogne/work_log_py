@@ -43,8 +43,8 @@ worklog report -o 日報.md             # 日報を Markdown で書き出し
 | `log [DATE] [--json]` | 1日分の割り当て一覧 |
 | `assign add TASK --from TIME --to TIME [--date DATE]` | 時間帯を指定して割り当て (さかのぼり登録・空白の穴埋め) |
 | `assign add TASK --events A..B` | `events` で見たイベント ID の範囲を割り当て |
-| `assign edit ID [--start TIME] [--end TIME] [--task TASK]` | 割り当ての修正 |
-| `assign delete ID...` | 割り当ての削除 |
+| `assign edit ASSIGN [--start TIME] [--end TIME] [--task TASK]` | 割り当ての修正 |
+| `assign delete ASSIGN...` | 割り当ての削除 |
 | `task list [--all] [--flat] [--json]` | タスク一覧 (ツリー) |
 | `task add PATH` / `rename TASK NAME` / `move TASK [PARENT]` | タスクの作成・名前変更・親の付け替え |
 | `task archive TASK` / `unarchive TASK` | アーカイブ (削除はしない。過去の記録は残る) |
@@ -65,6 +65,15 @@ worklog report -o 日報.md             # 日報を Markdown で書き出し
 | `案件A/手順書作成` | パス。`/` で階層を区切る。親タスクにも記録できる |
 | `#12` | タスク ID (`task list` で確認) |
 | `@1` | 最近使ったタスクの番号 (`recent` で確認。1 が最新) |
+
+### 割り当ての指定 (ASSIGN)
+
+`assign edit` / `assign delete` で使います。
+
+| 書き方 | 意味 |
+|---|---|
+| `#12` | 割り当て ID (`log` の ID 列で確認) |
+| `@1` | 直近の割り当ての番号 (開始時刻が新しい順。1 が最新) |
 
 ### 時刻・日付の指定
 

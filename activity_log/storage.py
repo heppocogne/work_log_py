@@ -200,6 +200,12 @@ class Storage:
         ).fetchone()
         return self._assignment(row) if row else None
 
+    def recent_assignments(self, limit: int) -> list[Assignment]:
+        rows = self.conn.execute(
+            "SELECT * FROM assignments ORDER BY start_at DESC, id DESC LIMIT ?", (limit,)
+        ).fetchall()
+        return [self._assignment(r) for r in rows]
+
     def overlapping_assignments(self, start: int | None, end: int | None) -> list[Assignment]:
         """[start, end) と重なる割り当て。None は無限 (start=None なら最初から、end=None なら以降すべて)。"""
         sql = "SELECT * FROM assignments WHERE 1=1"

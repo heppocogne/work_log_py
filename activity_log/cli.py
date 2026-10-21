@@ -199,7 +199,7 @@ def cmd_log(app: App, args: argparse.Namespace) -> int:
         dur = a.duration(now)
         total += max(0, min(a.end_at or now, hi) - max(a.start_at, lo))
         src = " *" if a.source == "manual" else ""
-        out(f"{a.id:>5}  {fmt_clock_on(a.start_at, d, dsh):<11} {ljust(end, 11)} {fmt_duration(dur):>5}  "
+        out(f"{'#' + str(a.id):>5}  {fmt_clock_on(a.start_at, d, dsh):<11} {ljust(end, 11)} {fmt_duration(dur):>5}  "
             f"{a.task_path} (#{a.task_id}){src}")
     out(f"合計 {fmt_duration(total, 'ja')}   (* = 手動で登録・修正したもの)")
     return 0
@@ -241,6 +241,7 @@ def cmd_assign_add(app: App, args: argparse.Namespace) -> int:
 
 
 def cmd_assign_edit(app: App, args: argparse.Namespace) -> int:
+    args.id = app.tasks.resolve_assignment(args.id)
     a = app.tasks.get_assignment(args.id)
     base = app.date_of(a.start_at)
     start = app.parse_time(args.start, base) if args.start else None
@@ -257,7 +258,7 @@ def cmd_assign_edit(app: App, args: argparse.Namespace) -> int:
 
 
 def cmd_assign_delete(app: App, args: argparse.Namespace) -> int:
-    for aid in args.ids:
+    for aid in [app.tasks.resolve_assignment(s) for s in args.ids]:
         a = app.tasks.delete(aid)
         out(f"削除: [{a.id}] {fmt_assignment(a, app.now())}")
     return 0
@@ -546,14 +547,14 @@ def build_parser() -> argparse.ArgumentParser:
     a.add_argument("--no-create", action="store_true", help="存在しないタスクを作らない")
     a.set_defaults(func=cmd_assign_add)
     a = asub.add_parser("edit", help="割り当ての開始・終了・タスクを変更する")
-    a.add_argument("id", type=int, help="割り当て ID (log で確認)")
+    a.add_argument("id", help="割り当て: #ID (log で確認) / @N (直近の割り当ての番号。1 が最新)")
     a.add_argument("--start", metavar="TIME", help="新しい開始時刻 (日付省略時は元の日付)")
     a.add_argument("--end", metavar="TIME", help="新しい終了時刻")
     a.add_argument("--task", help=TASK_SPEC_HELP)
     a.add_argument("--no-create", action="store_true", help="存在しないタスクを作らない")
     a.set_defaults(func=cmd_assign_edit)
     a = asub.add_parser("delete", aliases=["rm"], help="割り当てを削除する")
-    a.add_argument("ids", type=int, nargs="+", metavar="ID", help="割り当て ID")
+    a.add_argument("ids", nargs="+", metavar="ID", help="割り当て: #ID / @N")
     a.set_defaults(func=cmd_assign_delete)
 
     # --- タスクの管理 ---

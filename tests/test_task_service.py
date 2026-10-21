@@ -234,6 +234,19 @@ class EditTest(AssignmentTestBase):
         with self.assertRaises(NotFoundError):
             self.ts.delete(a.id)
 
+    def test_resolve_assignment(self) -> None:
+        a, _ = self.ts.add_range("A", t("9:00"), t("10:00"))
+        b, _ = self.ts.add_range("B", t("10:00"), t("11:00"))
+        self.assertEqual(self.ts.resolve_assignment(f"#{a.id}"), a.id)
+        self.assertEqual(self.ts.resolve_assignment("@1"), b.id)
+        self.assertEqual(self.ts.resolve_assignment("@2"), a.id)
+        for bad in ("@0", "@3"):
+            with self.assertRaises(NotFoundError):
+                self.ts.resolve_assignment(bad)
+        for bad in (str(a.id), "#", "@x", ""):
+            with self.assertRaises(ActivityLogError):
+                self.ts.resolve_assignment(bad)
+
     def test_close_open_before(self) -> None:
         self.ts.switch("A", at=t("9:00"))
         self.assertIsNone(self.ts.close_open_before(t("8:00")))
