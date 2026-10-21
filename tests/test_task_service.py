@@ -243,7 +243,8 @@ class EditTest(AssignmentTestBase):
         for bad in ("@0", "@3"):
             with self.assertRaises(NotFoundError):
                 self.ts.resolve_assignment(bad)
-        for bad in (str(a.id), "#", "@x", ""):
+        self.assertEqual(self.ts.resolve_assignment(str(a.id)), a.id)
+        for bad in ("#", "@x", ""):
             with self.assertRaises(ActivityLogError):
                 self.ts.resolve_assignment(bad)
 

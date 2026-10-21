@@ -217,8 +217,10 @@ class TaskService:
         return result
 
     def resolve_assignment(self, spec: str) -> int:
-        """割り当ての指定 (`#12` = 割り当て ID、`@1` = 直近の割り当ての番号、1 が最新) を ID にする。"""
+        """割り当ての指定 (`#12` / `12` = 割り当て ID、`@1` = 直近の割り当ての番号、1 が最新) を ID にする。"""
         spec = spec.strip()
+        if spec.isdigit():
+            return int(spec)
         if spec[:1] in ("#", "@") and spec[1:].isdigit():
             n = int(spec[1:])
             if spec[0] == "#":
@@ -227,7 +229,7 @@ class TaskService:
             if n < 1 or n > len(recent):
                 raise NotFoundError(f"直近の割り当て {spec} はありません (log で一覧を確認できます)")
             return recent[n - 1].id
-        raise ActivityLogError(f"割り当ての指定を解釈できません: {spec!r} (例: #12, @1)")
+        raise ActivityLogError(f"割り当ての指定を解釈できません: {spec!r} (例: 12, #12, @1)")
 
     def get_assignment(self, assignment_id: int) -> Assignment:
         a = self.db.get_assignment(assignment_id)
