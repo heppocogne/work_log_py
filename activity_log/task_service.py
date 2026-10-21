@@ -219,16 +219,19 @@ class TaskService:
     def resolve_assignment(self, spec: str) -> int:
         """割り当ての指定 (`#12` / `12` = 割り当て ID、`@1` = 直近の割り当ての番号、1 が最新) を ID にする。"""
         spec = spec.strip()
-        if spec.isdigit():
-            return int(spec)
-        if spec[:1] in ("#", "@") and spec[1:].isdigit():
+        if spec.isdigit() or (spec[:1] == "#" and spec[1:].isdigit()):
+            return self.get_assignment(int(spec.lstrip("#"))).id
+        if spec[:1] == "@" and spec[1:].isdigit():
             n = int(spec[1:])
-            if spec[0] == "#":
-                return n
-            recent = self.db.recent_assignments(max(n, 1))
+            recent = self.db.recent_assignments(n + 1)  # 次点も取り、同じ開始時刻で絞れないかを確認する
             if n < 1 or n > len(recent):
                 raise NotFoundError(f"直近の割り当て {spec} はありません (log で一覧を確認できます)")
-            return recent[n - 1].id
+            target = recent[n - 1]
+            if any(a.start_at == target.start_at for a in recent[max(n - 2, 0):n + 1] if a.id != target.id):
+                raise ActivityLogError(
+                    f"{spec} は開始時刻が同じ割り当てがあり絞れません (log の ID を #ID で指定してください)"
+                )
+            return target.id
         raise ActivityLogError(f"割り当ての指定を解釈できません: {spec!r} (例: 12, #12, @1)")
 
     def get_assignment(self, assignment_id: int) -> Assignment:

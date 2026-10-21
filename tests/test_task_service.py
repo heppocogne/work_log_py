@@ -248,6 +248,21 @@ class EditTest(AssignmentTestBase):
             with self.assertRaises(ActivityLogError):
                 self.ts.resolve_assignment(bad)
 
+    def test_resolve_assignment_unknown_id(self) -> None:
+        with self.assertRaises(NotFoundError):
+            self.ts.resolve_assignment("#999")
+
+    def test_resolve_assignment_ambiguous_recent(self) -> None:
+        a, _ = self.ts.add_range("A", t("9:00"), t("10:00"))
+        tid = a.task_id
+        self.ts.db.insert_assignment(tid, t("10:00"), t("10:30"), "manual")
+        self.ts.db.insert_assignment(tid, t("10:00"), t("10:15"), "manual")
+        with self.assertRaises(ActivityLogError):
+            self.ts.resolve_assignment("@1")
+        with self.assertRaises(ActivityLogError):
+            self.ts.resolve_assignment("@2")
+        self.assertEqual(self.ts.resolve_assignment("@3"), a.id)
+
     def test_close_open_before(self) -> None:
         self.ts.switch("A", at=t("9:00"))
         self.assertIsNone(self.ts.close_open_before(t("8:00")))
